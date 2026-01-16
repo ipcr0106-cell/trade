@@ -81,35 +81,40 @@ try:
             diff = last_val - prev_val
             col.metric(m_name, f"{last_val:,.0f}", f"{diff:,.0f}")
 
-    # --- 4. 메인 그래프 (모든 점에 수치 표시) ---
+    # --- 4. 메인 그래프 ---
     if not target_metrics:
         st.info("💡 상단에서 지표를 하나 이상 선택해 주세요.")
     else:
-        # 데이터 포인트가 많을 경우 그래프 길이를 조절
         fig_width = 12 if data_mode == "분기별" else 16
         fig, ax = plt.subplots(figsize=(fig_width, 6))
         colors = {"수출금액": "#2ecc71", "수입금액": "#e74c3c", "무역수지": "#3498db"}
         
         for metric in target_metrics:
-            # 선 그래프 그리기
             sns.lineplot(data=plot_df, x='시점', y=metric, marker='o', markersize=6,
                          label=metric, color=colors.get(metric), ax=ax)
             
-            # [요청 반영] 모든 점에 수치 추가
+            # 모든 점에 수치 추가
             for i in range(len(plot_df)):
                 val = plot_df[metric].iloc[i]
                 ax.text(
                     i, val, f"{val:,.0f}", 
                     color=colors.get(metric), 
-                    fontsize=8,           # 작은 글씨 크기
-                    fontweight='normal',
-                    va='bottom',          # 점 위에 위치
-                    ha='center'           # 가운데 정렬
+                    fontsize=8, 
+                    va='bottom', 
+                    ha='center'
                 )
 
+        # [수정 포인트] Y축 단위 표기 및 라벨 설정
+        ax.set_ylabel("금액 (단위: 천불)", fontsize=10, fontweight='bold')
+        ax.set_xlabel("조회 시점", fontsize=10)
+        
         plt.xticks(rotation=45)
-        plt.legend(loc='upper left', bbox_to_anchor=(1, 1)) # 범례를 그래프 밖으로 이동하여 겹침 방지
+        plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
         plt.grid(True, linestyle='--', alpha=0.3)
+        
+        # 그래프 상단 여백 확보 (수치가 잘리지 않게)
+        ax.set_ylim(ax.get_ylim()[0], ax.get_ylim()[1] * 1.1)
+        
         plt.tight_layout()
         st.pyplot(fig)
 
