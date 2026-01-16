@@ -10,6 +10,7 @@ plt.rcParams['axes.unicode_minus'] = False
 st.set_page_config(page_title="무역 데이터 분석", layout="wide")
 st.title("🇰🇷 한국 수출입 무역통계 분석기")
 
+# 1. 데이터 로드 및 전처리 함수
 def load_trade_data(file_path):
     df = pd.read_csv(file_path, skiprows=4)
     df.columns = ['순번', '시점', '수출금액', '수출증감률', '수입금액', '수입증감률', '무역수지']
@@ -19,14 +20,13 @@ def load_trade_data(file_path):
         if df[col].dtype == 'object':
             df[col] = df[col].str.replace(',', '').astype(float)
     
-    # '시점' 컬럼에서 '2024년'만 추출해서 '연도' 컬럼 생성
-    df['연도'] = df['시점'].apply(lambda x: x.split(' ')[0])
-    
+    # 연도 숫자 추출
+    df['연도_숫자'] = df['시점'].apply(lambda x: int(x.split('년')[0]))
     df = df.iloc[::-1].reset_index(drop=True)
     return df
 
-# 1. 사이드바 설정
-st.sidebar.header("📍 조회 조건 설정")
+# 2. 사이드바 설정
+st.sidebar.header("📍 데이터 설정")
 data_mode = st.sidebar.radio("데이터 단위", ["연도별", "분기별"])
 
 if data_mode == "연도별":
@@ -34,53 +34,83 @@ if data_mode == "연도별":
 else:
     file_name = "한국무역통계 총괄 - K-stat 수출입 무역통계_분기별.csv"
 
-target_metric = st.sidebar.selectbox("보고 싶은 지표", ["수출금액", "수입금액", "무역수지"])
+# [기능 추가] 다중 지표 선택 (체크박스 형태의 멀티셀렉트)
+target_metrics = st.sidebar.multiselect(
+    "비교할 지표를 선택하세요", 
+    ["수출금액", "수입금액", "무역수지"],
+    default=["수출금액"] # 기본값
+)
 
-# 2. 메인 로직
+# 3. 메인 로직
 try:
     df = load_trade_data(file_name)
 
-    # --- 연도 선택 필터 추가 ---
-    if data_mode == "분기별":
-        # 사용 가능한 연도 리스트 추출 (중복 제거 및 정렬)
-        year_list = sorted(df['연도'].unique(), reverse=True)
-        selected_year = st.selectbox("📅 확인하고 싶은 연도를 선택하세요", year_list)
-        
-        # 선택된 연도의 데이터만 필터링
-        plot_df = df[df['연도'] == selected_year]
-        display_title = f"📅 {selected_year} {target_metric} 추이"
+    # 4년 단위 범위 생성
+    unique_years = sorted(df['연도_숫자'].unique())
+    year_ranges = []
+    for i in range(0, len(unique_years), 4):
+        group = unique_years[i : i + 4]
+        label = f"{group[0]}~{group[-1]}"
+        year_ranges.append((label, group))
+    
+    year_ranges.reverse()
+    range_labels = [r[0] for r in year_ranges]
+
+    # 상단 필터 레이아웃
+    filter_col1, filter_col2 = st.columns([2, 3])
+    with filter_col1:
+        selected_range_label = st.selectbox("📅 조회 연도 범위 (4년 단위)", range_labels)
+    
+    # 데이터 필터링
+    selected_years = [r[1] for r in year_ranges if r[0] == selected_range_label][0]
+    plot_df = df[df['연도_숫자'].isin(selected_years)]
+
+    # 4. [요청 반영] 서브헤더 및 지표 배너 위치 변경
+    st.divider()
+    
+    # 헤더와 메트릭을 한 줄에 배치
+    header_col, m1, m2, m3 = st.columns([2, 1, 1, 1])
+    
+    with header_col:
+        st.subheader(f"📈 {selected_range_label} 추이")
+
+    # 선택된 지표들에 대해서만 상단에 요약 수치 표시
+    metrics_map = {"수출금액": m1, "수입금액": m2, "무역수지": m3}
+    for m_name, col in metrics_map.items():
+        if m_name in target_metrics:
+            last_val = plot_df[m_name].iloc[-1]
+            prev_val = plot_df[m_name].iloc[-2] if len(plot_df) > 1 else last_val
+            diff = last_val - prev_val
+            col.metric(m_name, f"{last_val:,.0f}", f"{diff:,.0f}")
+
+    # 5. [기능 추가] 그래프 그리기 (다중 지표 비교)
+    if not target_metrics:
+        st.warning("왼쪽 사이드바에서 최소 하나 이상의 지표를 선택해 주세요.")
     else:
-        plot_df = df
-        display_title = f"📅 전체 연도별 {target_metric} 추이"
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        # 색상 매핑
+        colors = {"수출금액": "#2ecc71", "수입금액": "#e74c3c", "무역수지": "#3498db"}
+        
+        for metric in target_metrics:
+            sns.lineplot(data=plot_df, x='시점', y=metric, marker='o', 
+                         label=metric, color=colors.get(metric), ax=ax)
+            
+            # 수치 표시 (지표가 여러개일 땐 가독성을 위해 마지막 값만 표시하거나 생략 가능)
+            # 여기서는 마지막 점에만 값을 표시해 보겠습니다.
+            last_idx = len(plot_df) - 1
+            ax.text(last_idx, plot_df[metric].iloc[-1], f"{plot_df[metric].iloc[-1]:,.0f}", 
+                    color=colors.get(metric), fontweight='bold')
 
-    # 3. 요약 수치 (필터링된 데이터 기준)
-    last_value = plot_df[target_metric].iloc[-1]
-    # 데이터가 1개만 있을 경우를 대비한 예외 처리
-    prev_value = plot_df[target_metric].iloc[-2] if len(plot_df) > 1 else last_value
-    diff = last_value - prev_value
+        plt.xticks(rotation=45)
+        plt.legend(loc='upper left')
+        plt.grid(True, linestyle='--', alpha=0.5)
+        st.pyplot(fig)
 
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.metric(f"최근 {target_metric}", f"{last_value:,.0f} $", f"{diff:,.0f} $")
-    
-    # 4. 그래프 그리기
-    st.subheader(display_title)
-    
-    fig, ax = plt.subplots(figsize=(12, 5))
-    sns.lineplot(data=plot_df, x='시점', y=target_metric, marker='o', color='#1f77b4', ax=ax)
-    
-    # 그래프 상단에 값 표시 (분기별일 때 가독성 업!)
-    for i in range(len(plot_df)):
-        ax.text(i, plot_df[target_metric].iloc[i], f"{plot_df[target_metric].iloc[i]:,.0f}", 
-                ha='center', va='bottom', fontsize=10)
-
-    plt.xticks(rotation=0) # 분기별은 라벨이 적으니 회전 안 함
-    plt.grid(True, linestyle='--', alpha=0.6)
-    st.pyplot(fig)
-
-    # 5. 원본 데이터 (필터링된 것만)
-    with st.expander("선택한 기간 데이터 보기"):
+    # 6. 데이터 테이블
+    with st.expander("데이터 상세 보기"):
         st.dataframe(plot_df.sort_values('시점', ascending=False))
 
 except Exception as e:
-    st.error(f"오류가 발생했습니다: {e}")
+    st.error("데이터 로딩 중 에러가 발생했습니다.")
+    st.info(f"에러 내용: {e}")
