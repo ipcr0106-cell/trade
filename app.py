@@ -11,7 +11,7 @@ st.set_page_config(page_title="무역 데이터 분석", layout="wide")
 st.title("🇰🇷 한국 수출입 무역통계 분석기")
 
 # 1. 데이터 로드 및 전처리 함수
-@st.cache_data # 데이터 로딩 속도 향상
+@st.cache_data
 def load_trade_data(file_path):
     df = pd.read_csv(file_path, skiprows=4)
     df.columns = ['순번', '시점', '수출금액', '수출증감률', '수입금액', '수입증감률', '무역수지']
@@ -25,23 +25,20 @@ def load_trade_data(file_path):
     df = df.iloc[::-1].reset_index(drop=True)
     return df
 
-# --- 2. [요청 반영] 본문 상단 설정 구역 ---
-st.write("---") # 구분선
+# --- 2. 본문 상단 설정 구역 ---
+st.write("---")
 ctrl_col1, ctrl_col2 = st.columns([1, 2])
 
 with ctrl_col1:
-    # 데이터 단위 선택
     data_mode = st.radio("📊 데이터 단위", ["연도별", "분기별"], horizontal=True)
 
 with ctrl_col2:
-    # 비교 지표 멀티 선택
     target_metrics = st.multiselect(
         "🔍 비교할 지표를 선택하세요", 
         ["수출금액", "수입금액", "무역수지"],
         default=["수출금액", "수입금액"]
     )
 
-# 파일 결정 및 데이터 로드
 if data_mode == "연도별":
     file_name = "한국무역통계 총괄 - K-stat 수출입 무역통계.csv"
 else:
@@ -50,7 +47,6 @@ else:
 try:
     df = load_trade_data(file_name)
 
-    # 분기별일 때만 추가적으로 연도 범위 선택 상자 표시
     if data_mode == "분기별":
         unique_years = sorted(df['연도_숫자'].unique())
         year_ranges = []
@@ -62,24 +58,21 @@ try:
         year_ranges.reverse()
         range_labels = [r[0] for r in year_ranges]
         
-        # 필터링 섹션
         selected_range_label = st.selectbox("📅 조회할 분기 범위 선택 (4년 단위)", range_labels)
         selected_years = [r[1] for r in year_ranges if r[0] == selected_range_label][0]
         plot_df = df[df['연도_숫자'].isin(selected_years)]
         display_title = f"{selected_range_label} 분기별 추이"
     else:
-        # 연도별은 전체 데이터
         plot_df = df
         display_title = "전체 연도별 무역 추이"
 
     # --- 3. 데이터 요약 배너 및 서브헤더 ---
-    st.write("") # 간격 조절
+    st.write("")
     header_col, m1, m2, m3 = st.columns([2.5, 1, 1, 1])
     
     with header_col:
         st.subheader(f"📈 {display_title}")
 
-    # 선택된 지표의 최신값 메트릭
     metrics_map = {"수출금액": m1, "수입금액": m2, "무역수지": m3}
     for m_name, col in metrics_map.items():
         if m_name in target_metrics:
@@ -88,24 +81,36 @@ try:
             diff = last_val - prev_val
             col.metric(m_name, f"{last_val:,.0f}", f"{diff:,.0f}")
 
-    # --- 4. 메인 그래프 ---
+    # --- 4. 메인 그래프 (모든 점에 수치 표시) ---
     if not target_metrics:
         st.info("💡 상단에서 지표를 하나 이상 선택해 주세요.")
     else:
-        fig, ax = plt.subplots(figsize=(12, 5))
+        # 데이터 포인트가 많을 경우 그래프 길이를 조절
+        fig_width = 12 if data_mode == "분기별" else 16
+        fig, ax = plt.subplots(figsize=(fig_width, 6))
         colors = {"수출금액": "#2ecc71", "수입금액": "#e74c3c", "무역수지": "#3498db"}
         
         for metric in target_metrics:
-            sns.lineplot(data=plot_df, x='시점', y=metric, marker='o', 
+            # 선 그래프 그리기
+            sns.lineplot(data=plot_df, x='시점', y=metric, marker='o', markersize=6,
                          label=metric, color=colors.get(metric), ax=ax)
             
-            # 마지막 포인트 값 표시
-            ax.text(len(plot_df)-1, plot_df[metric].iloc[-1], f"{plot_df[metric].iloc[-1]:,.0f}", 
-                    color=colors.get(metric), fontweight='bold', va='bottom', ha='left')
+            # [요청 반영] 모든 점에 수치 추가
+            for i in range(len(plot_df)):
+                val = plot_df[metric].iloc[i]
+                ax.text(
+                    i, val, f"{val:,.0f}", 
+                    color=colors.get(metric), 
+                    fontsize=8,           # 작은 글씨 크기
+                    fontweight='normal',
+                    va='bottom',          # 점 위에 위치
+                    ha='center'           # 가운데 정렬
+                )
 
         plt.xticks(rotation=45)
-        plt.legend(loc='upper left')
-        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.legend(loc='upper left', bbox_to_anchor=(1, 1)) # 범례를 그래프 밖으로 이동하여 겹침 방지
+        plt.grid(True, linestyle='--', alpha=0.3)
+        plt.tight_layout()
         st.pyplot(fig)
 
     # 5. 하단 원본 데이터 테이블
