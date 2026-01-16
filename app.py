@@ -16,12 +16,16 @@ def load_trade_data(file_path):
     df = pd.read_csv(file_path, skiprows=4)
     df.columns = ['순번', '시점', '수출금액', '수출증감률', '수입금액', '수입증감률', '무역수지']
     
+    # 숫자 데이터 전처리
     numeric_cols = ['수출금액', '수입금액', '무역수지']
     for col in numeric_cols:
         if df[col].dtype == 'object':
             df[col] = df[col].str.replace(',', '').astype(float)
     
+    # 연도 숫자 추출 및 2010년 이후 데이터만 필터링
     df['연도_숫자'] = df['시점'].apply(lambda x: int(x.split('년')[0]))
+    df = df[df['연도_숫자'] >= 2010] # [수정 포인트] 2010년 데이터부터 사용
+    
     df = df.iloc[::-1].reset_index(drop=True)
     return df
 
@@ -48,6 +52,7 @@ try:
     df = load_trade_data(file_name)
 
     if data_mode == "분기별":
+        # 필터링된 데이터(2010년~)를 기준으로 연도 범위 생성
         unique_years = sorted(df['연도_숫자'].unique())
         year_ranges = []
         for i in range(0, len(unique_years), 4):
@@ -64,7 +69,7 @@ try:
         display_title = f"{selected_range_label} 분기별 추이"
     else:
         plot_df = df
-        display_title = "전체 연도별 무역 추이"
+        display_title = "2010년 이후 연도별 무역 추이"
 
     # --- 3. 데이터 요약 배너 및 서브헤더 ---
     st.write("")
@@ -81,7 +86,7 @@ try:
             diff = last_val - prev_val
             col.metric(m_name, f"{last_val:,.0f}", f"{diff:,.0f}")
 
-    # --- 4. 메인 그래프 ---
+    # --- 4. 메인 그래프 (단위: 천불 반영) ---
     if not target_metrics:
         st.info("💡 상단에서 지표를 하나 이상 선택해 주세요.")
     else:
@@ -93,26 +98,19 @@ try:
             sns.lineplot(data=plot_df, x='시점', y=metric, marker='o', markersize=6,
                          label=metric, color=colors.get(metric), ax=ax)
             
-            # 모든 점에 수치 추가
+            # 모든 점에 작은 수치 추가
             for i in range(len(plot_df)):
                 val = plot_df[metric].iloc[i]
-                ax.text(
-                    i, val, f"{val:,.0f}", 
-                    color=colors.get(metric), 
-                    fontsize=8, 
-                    va='bottom', 
-                    ha='center'
-                )
+                ax.text(i, val, f"{val:,.0f}", color=colors.get(metric), 
+                        fontsize=8, va='bottom', ha='center')
 
-        # [수정 포인트] Y축 단위 표기 및 라벨 설정
+        # Y축 단위 표기
         ax.set_ylabel("금액 (단위: 천불)", fontsize=10, fontweight='bold')
-        ax.set_xlabel("조회 시점", fontsize=10)
-        
         plt.xticks(rotation=45)
         plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
         plt.grid(True, linestyle='--', alpha=0.3)
         
-        # 그래프 상단 여백 확보 (수치가 잘리지 않게)
+        # 수치 잘림 방지를 위한 상단 여백 확보
         ax.set_ylim(ax.get_ylim()[0], ax.get_ylim()[1] * 1.1)
         
         plt.tight_layout()
@@ -123,5 +121,5 @@ try:
         st.dataframe(plot_df.sort_values('시점', ascending=False))
 
 except Exception as e:
-    st.error("파일을 읽어오는 중 오류가 발생했습니다.")
+    st.error("데이터를 처리하는 중 오류가 발생했습니다.")
     st.info(f"상세 에러: {e}")
